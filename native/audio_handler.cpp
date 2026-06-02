@@ -85,19 +85,19 @@ void AudioHandler::RemoveCachedBrowser(CefRefPtr<CefBrowser> browser) {
 }
 
 jobject jniParams(JNIEnv* env, jclass clsProps, const CefAudioParameters& params) {
-  jclass cls = env->FindClass("org/cef/misc/CefChannelLayout");
-  if (cls == nullptr) {
+  ScopedJNIClass layoutCls(env, "org/cef/misc/CefChannelLayout");
+  if (layoutCls == nullptr) {
 //    std::cout << "Could not find class 0";
     return nullptr;
   }
-  jmethodID getLayout = env->GetStaticMethodID(cls, "forId", "(I)Lorg/cef/misc/CefChannelLayout;");
+  jmethodID getLayout = env->GetStaticMethodID(layoutCls, "forId", "(I)Lorg/cef/misc/CefChannelLayout;");
   if (getLayout == 0) {
 //    std::cout << "Could not find method 0";
     return nullptr;
   }
-  jobject layout = env->CallStaticObjectMethod(cls, getLayout, (int) params.channel_layout);
+  jobject layout = env->CallStaticObjectMethod(layoutCls, getLayout, (int) params.channel_layout);
 
-  cls = clsProps;
+  jclass cls = clsProps;
   if (cls == nullptr) {
 //    std::cout << "Could not find class 1";
     return nullptr;
@@ -113,7 +113,7 @@ jobject jniParams(JNIEnv* env, jclass clsProps, const CefAudioParameters& params
 }
 
 jobject jniParams(JNIEnv* env, const CefAudioParameters& params) {
-  jclass cls = env->FindClass("org/cef/misc/CefAudioParameters");
+  ScopedJNIClass cls(env, "org/cef/misc/CefAudioParameters");
   return jniParams(env, cls, params);
 }
 
