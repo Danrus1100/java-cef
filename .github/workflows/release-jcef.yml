@@ -84,6 +84,22 @@ jobs:
         run: |
           brew install ninja coreutils
 
+      - name: Pre-download macOS clang-format
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/buildtools/mac
+          if [ "${{ matrix.cmake_arch }}" = "arm64" ]; then
+            hash_file="tools/buildtools/mac/clang-format.arm64.sha1"
+          else
+            hash_file="tools/buildtools/mac/clang-format.x64.sha1"
+          fi
+          hash="$(tr -d '[:space:]' < "$hash_file")"
+          curl -fsSL "https://storage.googleapis.com/chromium-clang-format/${hash}" \
+            -o tools/buildtools/mac/clang-format
+          chmod +x tools/buildtools/mac/clang-format
+
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         shell: pwsh
