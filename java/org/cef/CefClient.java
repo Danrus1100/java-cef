@@ -810,19 +810,35 @@ public class CefClient extends CefClientHandler
     public void onAudioStreamStarted(CefBrowser browser, CefAudioParameters params, int channels) {
         if (audioHandler_ != null) audioHandler_.onAudioStreamStarted(browser, params, channels);
     }
+
+    public void onAudioStreamStarted(int browserId, CefAudioParameters params, int channels) {
+        if (audioHandler_ != null) audioHandler_.onAudioStreamStarted(browserId, params, channels);
+    }
     
     @Override
     public void onAudioStreamPacket(CefBrowser browser, DataPointer data, int frames, long pts) {
         if (audioHandler_ != null) audioHandler_.onAudioStreamPacket(browser, data, frames, pts);
+    }
+
+    public void onAudioStreamPacket(int browserId, DataPointer data, int frames, long pts) {
+        if (audioHandler_ != null) audioHandler_.onAudioStreamPacket(browserId, data, frames, pts);
     }
     
     @Override
     public void onAudioStreamStopped(CefBrowser browser) {
         if (audioHandler_ != null) audioHandler_.onAudioStreamStopped(browser);
     }
+
+    public void onAudioStreamStopped(int browserId) {
+        if (audioHandler_ != null) audioHandler_.onAudioStreamStopped(browserId);
+    }
     
     @Override
     public void onAudioStreamError(CefBrowser browser, String text) {
         if (audioHandler_ != null) audioHandler_.onAudioStreamError(browser, text);
+    }
+
+    public void onAudioStreamError(int browserId, String text) {
+        if (audioHandler_ != null) audioHandler_.onAudioStreamError(browserId, text);
     }
 }

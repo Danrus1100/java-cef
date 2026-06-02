@@ -8,6 +8,9 @@
 
 #include <jni.h>
 
+#include <map>
+#include <mutex>
+
 #include "include/cef_audio_handler.h"
 
 #include "jni_scoped_helpers.h"
@@ -17,6 +20,7 @@
 class AudioHandler : public CefAudioHandler {
  public:
   AudioHandler(JNIEnv* env, jobject handler);
+  ~AudioHandler() override;
 
   // CefAudioHandler methods:
   bool GetAudioParameters(CefRefPtr<CefBrowser> browser,
@@ -28,7 +32,13 @@ class AudioHandler : public CefAudioHandler {
   void OnAudioStreamError(CefRefPtr<CefBrowser> browser, const CefString& text) override;
 
  protected:
+  jobject GetCachedBrowser(JNIEnv* env, CefRefPtr<CefBrowser> browser);
+  void CacheBrowser(JNIEnv* env, CefRefPtr<CefBrowser> browser, jobject jbrowser);
+  void RemoveCachedBrowser(CefRefPtr<CefBrowser> browser);
+
   ScopedJNIObjectGlobal handle_;
+  std::mutex browser_cache_mutex_;
+  std::map<int, jobject> browser_cache_;
 
   // Include the default reference counting implementation.
   IMPLEMENT_REFCOUNTING(AudioHandler);

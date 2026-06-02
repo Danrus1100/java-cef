@@ -16,10 +16,26 @@ public interface CefAudioHandler {
 	boolean getAudioParameters(CefBrowser browser, CefAudioParameters params);
 	
 	void onAudioStreamStarted(CefBrowser browser, CefAudioParameters params, int channels);
+
+	default void onAudioStreamStarted(int browserId, CefAudioParameters params, int channels) {
+		onAudioStreamStarted(null, params, channels);
+	}
 	
 	void onAudioStreamPacket(CefBrowser browser, DataPointer data, int frames, long pts);
+
+	default void onAudioStreamPacket(int browserId, DataPointer data, int frames, long pts) {
+		onAudioStreamPacket(null, data, frames, pts);
+	}
 	
 	void onAudioStreamStopped(CefBrowser browser);
+
+	default void onAudioStreamStopped(int browserId) {
+		onAudioStreamStopped((CefBrowser) null);
+	}
 	
 	void onAudioStreamError(CefBrowser browser, String text);
+
+	default void onAudioStreamError(int browserId, String text) {
+		onAudioStreamError(null, text);
+	}
 }

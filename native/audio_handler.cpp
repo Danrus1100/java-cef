@@ -6,12 +6,72 @@
 
 #include "jni_util.h"
 
-//#include <iostream>
+#include <fstream>
+#include <process.h>
+
+namespace {
+
+std::mutex g_browser_cache_mutex;
+std::map<int, jobject> g_browser_cache;
+int g_audio_java_process_id = -1;
+
+void AudioDebugLog(const char* message, int browserId = -1) {
+  std::ofstream log("cwd-jcef-audio.log", std::ios::app);
+  if (log.is_open()) {
+    log << message << " browser=" << browserId << " pid=" << _getpid() << std::endl;
+  }
+}
+
+}  // namespace
 
 AudioHandler::AudioHandler(JNIEnv* env, jobject handler)
     : handle_(env, handler) {}
 
-jobject jniParams(ScopedJNIEnv env, jclass clsProps, const CefAudioParameters& params) {
+AudioHandler::~AudioHandler() {
+}
+
+jobject AudioHandler::GetCachedBrowser(JNIEnv* env, CefRefPtr<CefBrowser> browser) {
+  if (!browser)
+    return nullptr;
+
+  std::lock_guard<std::mutex> lock(g_browser_cache_mutex);
+  auto it = g_browser_cache.find(browser->GetIdentifier());
+  return it == g_browser_cache.end() ? nullptr : it->second;
+}
+
+void AudioHandler::CacheBrowser(JNIEnv* env,
+                                CefRefPtr<CefBrowser> browser,
+                                jobject jbrowser) {
+  if (!browser || !jbrowser)
+    return;
+
+  std::lock_guard<std::mutex> lock(g_browser_cache_mutex);
+  int browserId = browser->GetIdentifier();
+  if (g_browser_cache.find(browserId) != g_browser_cache.end())
+    return;
+  g_browser_cache[browserId] = env->NewGlobalRef(jbrowser);
+}
+
+void AudioHandler::RemoveCachedBrowser(CefRefPtr<CefBrowser> browser) {
+  if (!browser)
+    return;
+
+  jobject cached = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_browser_cache_mutex);
+    auto it = g_browser_cache.find(browser->GetIdentifier());
+    if (it == g_browser_cache.end())
+      return;
+    cached = it->second;
+    g_browser_cache.erase(it);
+  }
+
+  ScopedJNIEnv env(0);
+  if (env && cached)
+    env->DeleteGlobalRef(cached);
+}
+
+jobject jniParams(JNIEnv* env, jclass clsProps, const CefAudioParameters& params) {
   jclass cls = env->FindClass("org/cef/misc/CefChannelLayout");
   if (cls == nullptr) {
 //    std::cout << "Could not find class 0";
@@ -39,16 +99,19 @@ jobject jniParams(ScopedJNIEnv env, jclass clsProps, const CefAudioParameters& p
   return parameters;
 }
 
-jobject jniParams(ScopedJNIEnv env, const CefAudioParameters& params) {
+jobject jniParams(JNIEnv* env, const CefAudioParameters& params) {
   jclass cls = env->FindClass("org/cef/misc/CefAudioParameters");
   return jniParams(env, cls, params);
 }
 
 bool AudioHandler::GetAudioParameters(CefRefPtr<CefBrowser> browser,
                                       CefAudioParameters& params) {
-  ScopedJNIEnv env;
-  if (!env)
+  AudioDebugLog("GetAudioParameters.enter", browser ? browser->GetIdentifier() : -1);
+  ScopedJNIEnv env(0);
+  if (!env) {
+    AudioDebugLog("GetAudioParameters.no-env", browser ? browser->GetIdentifier() : -1);
     return true;
+  }
 
   ScopedJNIBrowser jbrowser(env, browser);
 
@@ -59,60 +122,91 @@ bool AudioHandler::GetAudioParameters(CefRefPtr<CefBrowser> browser,
   JNI_CALL_METHOD(env, handle_, "getAudioParameters",
                        "(Lorg/cef/browser/CefBrowser;Lorg/cef/misc/CefAudioParameters;)Z", Boolean,
                        jreturn, jbrowser.get(), paramsJni);
+  if (jreturn != JNI_FALSE) {
+    params.channel_layout = CEF_CHANNEL_LAYOUT_STEREO;
+    params.sample_rate = 44100;
+    params.frames_per_buffer = 1024;
+    CacheBrowser(env, browser, jbrowser.get());
+    g_audio_java_process_id = _getpid();
+    AudioDebugLog("GetAudioParameters.return-true", browser ? browser->GetIdentifier() : -1);
+  } else {
+    AudioDebugLog("GetAudioParameters.return-false", browser ? browser->GetIdentifier() : -1);
+  }
 
   return (jreturn != JNI_FALSE);
 }
 
 void AudioHandler::OnAudioStreamStarted(CefRefPtr<CefBrowser> browser,
                                         const CefAudioParameters& params, int channels) {
-  ScopedJNIEnv env;
-  if (!env)
+  AudioDebugLog("OnAudioStreamStarted.enter", browser ? browser->GetIdentifier() : -1);
+  ScopedJNIEnv env(0);
+  if (!env) {
+    AudioDebugLog("OnAudioStreamStarted.no-env", browser ? browser->GetIdentifier() : -1);
     return;
+  }
+  if (g_audio_java_process_id != -1 && g_audio_java_process_id != _getpid()) {
+    AudioDebugLog("OnAudioStreamStarted.cross-process", browser ? browser->GetIdentifier() : -1);
+    return;
+  }
 
-  ScopedJNIBrowser jbrowser(env, browser);
+  ScopedJNIObjectLocal paramsJni(env, jniParams(env, params));
+  AudioDebugLog(paramsJni.get() ? "OnAudioStreamStarted.params-created" : "OnAudioStreamStarted.no-params",
+                browser ? browser->GetIdentifier() : -1);
 
+  AudioDebugLog("OnAudioStreamStarted.before-call", browser ? browser->GetIdentifier() : -1);
   JNI_CALL_VOID_METHOD(env, handle_, "onAudioStreamStarted",
-                       "(Lorg/cef/browser/CefBrowser;Lorg/cef/misc/CefAudioParameters;I)V",
-                       jbrowser.get(), nullptr, channels);
+                       "(ILorg/cef/misc/CefAudioParameters;I)V",
+                       browser ? browser->GetIdentifier() : -1, paramsJni.get(), channels);
+  AudioDebugLog("OnAudioStreamStarted.called-java", browser ? browser->GetIdentifier() : -1);
 }
 
 void AudioHandler::OnAudioStreamPacket(CefRefPtr<CefBrowser> browser, const float** data, int frames, int64_t pts) {
-  ScopedJNIEnv env;
+  static int packetLogCount = 0;
+  if (packetLogCount < 5) {
+    AudioDebugLog("OnAudioStreamPacket.enter", browser ? browser->GetIdentifier() : -1);
+    packetLogCount++;
+  }
+  ScopedJNIEnv env(0);
   if (!env)
     return;
-
-  ScopedJNIBrowser jbrowser(env, browser);
+  if (g_audio_java_process_id != -1 && g_audio_java_process_id != _getpid())
+    return;
 
   ScopedJNIObjectLocal dataPtr(
       env, NewJNIObject(env, "org/cef/misc/DataPointer", "(J)V", (jlong) data));
 
   JNI_CALL_VOID_METHOD(env, handle_, "onAudioStreamPacket",
-                  "(Lorg/cef/browser/CefBrowser;Lorg/cef/misc/DataPointer;IJ)V",
-                  jbrowser.get(), dataPtr.get(), frames, (long long) pts);
+                  "(ILorg/cef/misc/DataPointer;IJ)V",
+                  browser ? browser->GetIdentifier() : -1, dataPtr.get(), frames, (long long) pts);
 }
 
 void AudioHandler::OnAudioStreamStopped(CefRefPtr<CefBrowser> browser) {
-  ScopedJNIEnv env;
+  AudioDebugLog("OnAudioStreamStopped.enter", browser ? browser->GetIdentifier() : -1);
+  ScopedJNIEnv env(0);
   if (!env)
     return;
-
-  ScopedJNIBrowser jbrowser(env, browser);
+  if (g_audio_java_process_id != -1 && g_audio_java_process_id != _getpid())
+    return;
 
   JNI_CALL_VOID_METHOD(env, handle_, "onAudioStreamStopped",
-                       "(Lorg/cef/browser/CefBrowser;)V",
-                       jbrowser.get());
+                       "(I)V",
+                       browser ? browser->GetIdentifier() : -1);
+  RemoveCachedBrowser(browser);
 }
 
 void AudioHandler::OnAudioStreamError(CefRefPtr<CefBrowser> browser,
                                       const CefString& text) {
-  ScopedJNIEnv env;
+  AudioDebugLog("OnAudioStreamError.enter", browser ? browser->GetIdentifier() : -1);
+  ScopedJNIEnv env(0);
   if (!env)
     return;
+  if (g_audio_java_process_id != -1 && g_audio_java_process_id != _getpid())
+    return;
 
-  ScopedJNIBrowser jbrowser(env, browser);
   ScopedJNIString jtext(env, text);
 
   JNI_CALL_VOID_METHOD(env, handle_, "onAudioStreamError",
-                       "(Lorg/cef/browser/CefBrowser;Ljava/lang/String;)V",
-                       jbrowser.get(), jtext.get());
+                       "(ILjava/lang/String;)V",
+                       browser ? browser->GetIdentifier() : -1, jtext.get());
+  RemoveCachedBrowser(browser);
 }

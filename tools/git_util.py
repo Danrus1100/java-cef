@@ -13,7 +13,8 @@ git_exe = 'git'
 
 def is_checkout(path):
   """ Returns true if the path represents a git checkout. """
-  return os.path.isdir(os.path.join(path, '.git'))
+  git_path = os.path.join(path, '.git')
+  return os.path.isdir(git_path) or os.path.isfile(git_path)
 
 
 def get_hash(path='.', branch='HEAD'):
